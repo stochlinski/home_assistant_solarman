@@ -126,6 +126,11 @@ class SolarmanStatus(Entity):
 class SolarmanSensorText(SolarmanStatus):
     def __init__(self, inverter_name, inverter, sensor, sn):
         SolarmanStatus.__init__(self,inverter_name, inverter, sensor['name'], sn)
+        self._attr_available = False
+        self._always_avaliable = False
+        if "always_avaliable" in sensor:
+            always_avaliable = sensor['always_avaliable']
+            
         if 'icon' in sensor:
             self.p_icon = sensor['icon']
         else:
@@ -139,10 +144,18 @@ class SolarmanSensorText(SolarmanStatus):
     #  Retrieve the sensor data from actual interface
         self.inverter.update()
 
+        if (self.inverter.status_connection == "Disconnected") and (not self._always_avaliable):
+            self._attr_available = False
+            return
+        self._attr_available = True
+        
         val = self.inverter.get_current_val()
         if val is not None:
-            if self._field_name in val:
-                self.p_state = val[self._field_name]
+            if isinstance(val['Total Production'], int) and (val['Total Production'] < 300000 and (val['Total Production'] > 5000):
+                if self._field_name in val:
+                    self.p_state = val[self._field_name]
+            else: 
+                _LOGGER.error('Sofar logger return wrong total production value') 
 
 
 #############################################################################################################
