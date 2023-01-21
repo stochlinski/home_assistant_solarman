@@ -62,6 +62,7 @@ def _do_setup_platform(hass: HomeAssistant, config, async_add_entities : AddEnti
             raise
     hass_sensors.append(SolarmanStatus(inverter_name, inverter, "status_lastUpdate", inverter_sn))
     hass_sensors.append(SolarmanStatus(inverter_name, inverter, "status_connection", inverter_sn))
+    hass_sensors.append(SolarmanDailyDeltaSensor(inverter_name, inverter, "Daily Production Delta", inverter_sn))
 
     _LOGGER.debug(f'sensor.py:_do_setup_platform: async_add_entities')
     _LOGGER.debug(hass_sensors)
@@ -151,7 +152,7 @@ class SolarmanSensorText(SolarmanStatus):
         
         val = self.inverter.get_current_val()
         if val is not None:
-            if isinstance(val['Total Production'], int) and (val['Total Production'] < 300000 and (val['Total Production'] > 5000):
+            if isinstance(val['Total Production'], int) and (val['Total Production'] < 300000) and (val['Total Production'] > 5000):
                 if self._field_name in val:
                     self.p_state = val[self._field_name]
             else: 
@@ -193,3 +194,53 @@ class SolarmanSensor(SolarmanSensorText):
     def unit_of_measurement(self):
         return self.uom
 
+#############################################################################################################
+#  Entity displaying a numeric field as delta of daily production
+#   Overrides the Text sensor and supply the device class, last_reset and unit of measurement
+#############################################################################################################
+
+
+class SolarmanDailyDeltaSensor(SolarmanStatus):
+    def __init__(self, inverter_name, inverter, field_name, sn):
+        SolarmanStatus.__init__(self,inverter_name, inverter, field_name, sn)
+        self._attr_available = False
+        self._always_avaliable = False
+        self._device_class = 'energy'
+        self._prev_daily_production = None
+        self.p_icon = 'mdi:solar-power'
+        self.uom = 'kWh'
+        return
+
+    @property
+    def device_class(self):
+        return self._device_class
+
+    def update(self):
+    #  Update this sensor using the data.
+    #  Get the latest data and use it to update our sensor state.
+    #  Retrieve the sensor data from actual interface
+        self.inverter.update()
+
+        if (self.inverter.status_connection == "Disconnected") and (not self._always_avaliable):
+            self._attr_available = False
+            return
+        self._attr_available = True
+        
+        val = self.inverter.get_current_val()
+        if val is not None:
+            if isinstance(val['Total Production'], int) and (val['Total Production']) < 300000 and (val['Total Production'] > 5000):
+                if 'Daily Production' in val:
+                    if self._prev_daily_production is not None:
+                        if ((val['Daily Production'] - self._prev_daily_production) > 1 or (val['Daily Production'] - self._prev_daily_production) < 0):
+                            self.p_state = None 
+                        else:
+                            self.p_state = val['Daily Production'] - self._prev_daily_production
+                    else:
+                        self.p_state = None
+                    self._prev_daily_production = val['Daily Production']
+            else: 
+                _LOGGER.error('Sofar logger return wrong total production value') 
+    
+    @property
+    def unit_of_measurement(self):
+        return self.uom
