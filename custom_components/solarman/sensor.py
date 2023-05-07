@@ -18,13 +18,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import *
 from .solarman import Inverter
 from .scanner import InverterScanner
+from .services import *
 
 _LOGGER = logging.getLogger(__name__)
 _inverter_scanner = InverterScanner()
 
+
 def _do_setup_platform(hass: HomeAssistant, config, async_add_entities : AddEntitiesCallback):
     _LOGGER.debug(f'sensor.py:async_setup_platform: {config}') 
-   
+    
     inverter_name = config.get(CONF_NAME)
     inverter_host = config.get(CONF_INVERTER_HOST)
     if inverter_host == "0.0.0.0":
@@ -68,6 +70,13 @@ def _do_setup_platform(hass: HomeAssistant, config, async_add_entities : AddEnti
     _LOGGER.debug(hass_sensors)
 
     async_add_entities(hass_sensors)
+    # Register the services with home assistant.    
+    register_services (hass, inverter)
+    
+    
+    
+    
+    
 
 # Set-up from configuration.yaml
 async def async_setup_platform(hass: HomeAssistant, config, async_add_entities : AddEntitiesCallback, discovery_info=None):
@@ -78,16 +87,48 @@ async def async_setup_platform(hass: HomeAssistant, config, async_add_entities :
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     _LOGGER.debug(f'sensor.py:async_setup_entry: {entry.options}') 
     _do_setup_platform(hass, entry.options, async_add_entities)
-    
-   
+
+
+#############################################################################################################
+# This is the Device seen by Home Assistant.
+#  It provides device_info to Home Assistant which allows grouping all the Entities under a single Device.
+#############################################################################################################
+
+class SolarmanSensor():
+    """Solarman Device class."""
+
+    def __init__(self, id: str = None, device_name: str = None, model: str = None, manufacturer: str = None):
+        self.id = id
+        self.device_name = device_name
+        self.model = model
+        self.manufacturer = manufacturer
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self.id)},
+            "name": self.device_name,
+            "model": self.model,
+            "manufacturer": self.manufacturer,
+        }
+
+    @property
+    def extra_state_attributes(self):
+        """Return the extra state attributes."""
+        return {
+            "id": self.id,
+            "integration": DOMAIN,
+        }
+
 
 #############################################################################################################
 # This is the entity seen by Home Assistant.
 #  It derives from the Entity class in HA and is suited for status values.
 #############################################################################################################
 
-class SolarmanStatus(Entity):
+class SolarmanStatus(SolarmanSensor, Entity):
     def __init__(self, inverter_name, inverter, field_name, sn):
+        super().__init__(sn, inverter_name, inverter.lookup_file)
         self._inverter_name = inverter_name
         self.inverter = inverter
         self._field_name = field_name
@@ -118,6 +159,7 @@ class SolarmanStatus(Entity):
 
     def update(self):
         self.p_state = getattr(self.inverter, self._field_name)
+
 
 #############################################################################################################
 #  Entity displaying a text field read from the inverter
@@ -155,15 +197,16 @@ class SolarmanSensorText(SolarmanStatus):
             if isinstance(val['Total Production'], int) and (val['Total Production'] < 300000) and (val['Total Production'] > 5000):
                 if self._field_name in val:
                     self.p_state = val[self._field_name]
+                else:
+                    _LOGGER.debug(f'No value recorded for {self._field_name}')
             else: 
-                _LOGGER.error('Sofar logger return wrong total production value') 
+                _LOGGER.error('Sofar logger return wrong total production value')
 
 
 #############################################################################################################
 #  Entity displaying a numeric field read from the inverter
 #   Overrides the Text sensor and supply the device class, last_reset and unit of measurement
 #############################################################################################################
-
 
 class SolarmanSensor(SolarmanSensorText):
     def __init__(self, inverter_name, inverter, sensor, sn):
